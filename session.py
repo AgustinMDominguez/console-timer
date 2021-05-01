@@ -1,7 +1,8 @@
 import os
 import sys
+import tty
 import time
-import keyboard
+import termios
 import threading
 from math import floor
 
@@ -27,7 +28,7 @@ class Timer():
         self.mapped_keys = {
             'p': self.pause,
             'r': self.reset,
-            'esc': self.end
+            'e': self.end
         }
 
     def run(self):
@@ -38,6 +39,8 @@ class Timer():
             self.key_listener_th.join()
         except KeyboardInterrupt:
             self.should_run = False
+        os.system(CLEAR_SCREEN_CMD)
+        print()
         if self.remaining_seconds != 0:
             sys.exit(1)
 
@@ -50,25 +53,21 @@ class Timer():
                     self.remaining_seconds -= 1
         with self.control_lock:
             self.should_run = False
-        print("Ending??")
-        print(self.should_run)
 
     def update_screen(self):
         os.system(CLEAR_SCREEN_CMD)
-        print(human_readable(self.remaining_seconds))
+        timer_str = human_readable(self.remaining_seconds)
+        print(f" > {timer_str} <")
 
     def handle_keys(self):
         while self.should_run:
-            event = keyboard.read_event()
-            event_type = event.event_type
-            pressed_key = event.name
-            del event
-            if event_type == "down":
-                try:
-                    handle_func = self.mapped_keys[pressed_key]
-                    handle_func()
-                except KeyError:
-                    pass
+            try:
+                pressed_key = self.get_key()
+                handle_func = self.mapped_keys[pressed_key]
+                handle_func()
+                pass
+            except KeyError:
+                pass
 
     def pause(self):
         with self.control_lock:
@@ -83,6 +82,17 @@ class Timer():
     def end(self):
         with self.control_lock:
             self.should_run = False
+
+    @staticmethod
+    def get_key():
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        return ch
 
 
 def parse_time(st):
@@ -111,17 +121,16 @@ def human_readable(total_seconds):
     return st
 
 
-def main():
-    if len(sys.argv) > 1:
-        time_input = parse_time(sys.argv[1])
-    else:
-        time_input = parse_time(DEFAULT_SESSION)
+def get_total_seconds(argv):
+    time_input = argv[1] if (len(argv) > 1) else DEFAULT_SESSION
+    parsed_time = parse_time(time_input)
     total_seconds = 0
     for key in ARGUMENT_KEYS:
-        total_seconds += time_input[key[0]] * key[2]
-    timer = Timer(total_seconds)
-    timer.run()
+        total_seconds += parsed_time[key[0]] * key[2]
+    return total_seconds
 
 
 if __name__ == "__main__":
-    main()
+    total_seconds = get_total_seconds(sys.argv)
+    timer = Timer(total_seconds)
+    timer.run()
