@@ -37,6 +37,8 @@ class Timer():
                 handle_func()
             except KeyError:
                 pass
+        return (0 if self.should_run else 1)
+
 
     def pause(self)-> None:
         self.paused = not self.paused
@@ -102,4 +104,5 @@ def get_total_seconds(argv):
 if __name__ == "__main__":
     total_seconds = get_total_seconds(sys.argv)
     timer = Timer(total_seconds)
-    timer.run()
+    exit_status = timer.run()
+    exit(exit_status)
