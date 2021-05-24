@@ -1,10 +1,12 @@
 import os
 import sys
 from math import floor
+from datetime import datetime
 
 from inputimeout import inputimeout, TimeoutOccurred
 
 DEFAULT_SESSION = "1h"
+OFFSET_CORRECTION_SECONDS = 600
 CLEAR_SCREEN_CMD = "cls" if os.name == "nt" else "clear"
 ARGUMENT_KEYS = [
     ("hours", "h", 60*60),
@@ -13,10 +15,33 @@ ARGUMENT_KEYS = [
 ]
 
 
+class OffsetSecondsFixer():
+    def __init__(self) -> None:
+        self.offset_datetime = datetime.utcnow()
+        self.pause_start_datetime = None
+        self.paused = False
+
+    def pause(self):
+        if self.paused:
+            now = datetime.utcnow()
+            self.offset_datetime += now - self.pause_start_datetime
+        else:
+            self.pause_start_datetime = datetime.utcnow()
+        self.paused = not self.paused
+
+    def reset(self):
+        self.__init__()
+
+    def get_seconds_till_now(self):
+        return (datetime.utcnow() - self.offset_datetime).total_seconds()
+
+
 class Timer():
     def __init__(self, total_seconds):
         self.initial_seconds = total_seconds
         self.remaining_seconds = total_seconds
+        self.offset_fixer = OffsetSecondsFixer()
+        self.offset_seconds_running = 0
         self.paused = False
         self.should_run = True
         self.mapped_keys = {
@@ -32,6 +57,7 @@ class Timer():
             key = self.get_key()
             if not self.paused:
                 self.remaining_seconds -= 1
+                self.correct_offset()
             try:
                 handle_func = self.mapped_keys[key]
                 handle_func()
@@ -39,11 +65,20 @@ class Timer():
                 pass
         return (0 if self.should_run else 1)
 
+    def correct_offset(self):
+        if self.offset_seconds_running < OFFSET_CORRECTION_SECONDS:
+            self.offset_seconds_running += 1
+            return
+        seconds_till_now = self.offset_fixer.get_seconds_till_now()
+        self.remaining_seconds = int(self.initial_seconds - seconds_till_now)
+        self.offset_seconds_running = 0
 
     def pause(self)-> None:
+        self.offset_fixer.pause()
         self.paused = not self.paused
 
     def restart(self)-> None:
+        self.offset_fixer.reset()
         self.remaining_seconds = self.initial_seconds
 
     def end(self)-> None:
