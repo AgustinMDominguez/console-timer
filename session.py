@@ -1,13 +1,8 @@
 import os
 import sys
-import tty
-import time
-import stopit
-import ctypes
-import termios
-import threading
-import multiprocessing
 from math import floor
+
+from inputimeout import inputimeout, TimeoutOccurred
 
 DEFAULT_SESSION = "1h"
 CLEAR_SCREEN_CMD = "cls" if os.name == "nt" else "clear"
@@ -24,93 +19,49 @@ class Timer():
         self.remaining_seconds = total_seconds
         self.paused = False
         self.should_run = True
-        self.control_lock = threading.Lock()
-        self.counter_lock = threading.Lock()
-        self.timer_th = threading.Thread(target=self.run_timer)
-        # self.key_listener_th = multiprocessing.Process(target=self.handle_keys)
-        self.key_listener_th = threading.Thread(target=self.handle_keys)
         self.mapped_keys = {
             'p': self.pause,
-            'r': self.reset,
-            'e': self.end
+            'r': self.restart,
+            'e': self.end,
+            '0': self.passf
         }
 
     def run(self):
-        try:
-            self.timer_th.start()
-            self.key_listener_th.start()
-            self.timer_th.join()
-            print("Killing?")
-            kill_thread(self.key_listener_th)
-            self.key_listener_th.join()
-            print("Killed :D")
-        except KeyboardInterrupt:
-            self.should_run = False
-        os.system(CLEAR_SCREEN_CMD)
-        print()
-        if self.remaining_seconds != 0:
-            sys.exit(1)
-
-    def run_timer(self):
         while self.should_run and self.remaining_seconds > 0:
             self.update_screen()
-            time.sleep(1)
+            key = self.get_key()
             if not self.paused:
-                with self.counter_lock:
-                    self.remaining_seconds -= 1
+                self.remaining_seconds -= 1
+            try:
+                handle_func = self.mapped_keys[key]
+                handle_func()
+            except KeyError:
+                pass
+
+    def pause(self)-> None:
+        self.paused = not self.paused
+
+    def restart(self)-> None:
+        self.remaining_seconds = self.initial_seconds
+
+    def end(self)-> None:
         self.should_run = False
+
+    def passf(self)-> None:
+        pass
 
     def update_screen(self):
         os.system(CLEAR_SCREEN_CMD)
         timer_str = human_readable(self.remaining_seconds)
         print(f" > {timer_str} <")
 
-    def handle_keys(self):
-        while self.should_run:
-            try:
-                pressed_key = self.get_key()
-                handle_func = self.mapped_keys[pressed_key]
-                handle_func()
-                pass
-            except KeyError:
-                pass
-
-    def pause(self):
-        with self.control_lock:
-            self.paused = not self.paused
-
-    def reset(self):
-        with self.control_lock:
-            self.paused = False
-        with self.counter_lock:
-            self.remaining_seconds = self.initial_seconds
-
-    def end(self):
-        with self.control_lock:
-            self.should_run = False
-
     @staticmethod
-    def get_key():
-        with stopit.ThreadingTimeout(1) as to_ctx_mgr:
-            fd = sys.stdin.fileno()
-            old_settings = termios.tcgetattr(fd)
-            try:
-                tty.setraw(fd)
-                ch = sys.stdin.read(1)
-            finally:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-        if to_ctx_mgr.state == to_ctx_mgr.EXECUTED:
-            return ch
-        else:
-            return '0'
-
-
-def kill_thread(thread):
-    thread_id = thread.ident
-    res = ctypes.pythonapi.PyThreadState_SetAsyncExc(thread_id, ctypes.py_object(SystemExit))
-    if res > 1:
-        ctypes.pythonapi.PyThreadState_SetAsyncExc(thread_id, 0)
-        print('Exception raise failure')
+    def get_key()-> str:
+        try:
+            key = inputimeout(prompt="command >  ", timeout=1)
+        except TimeoutOccurred:
+            key = '0'
+        return key
 
 
 def parse_time(st):
@@ -147,9 +98,6 @@ def get_total_seconds(argv):
         total_seconds += parsed_time[key[0]] * key[2]
     return total_seconds
 
-
-def timer():
-    pass
 
 if __name__ == "__main__":
     total_seconds = get_total_seconds(sys.argv)
