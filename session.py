@@ -2,8 +2,11 @@ import os
 import sys
 import tty
 import time
+import stopit
+import ctypes
 import termios
 import threading
+import multiprocessing
 from math import floor
 
 DEFAULT_SESSION = "1h"
@@ -24,6 +27,7 @@ class Timer():
         self.control_lock = threading.Lock()
         self.counter_lock = threading.Lock()
         self.timer_th = threading.Thread(target=self.run_timer)
+        # self.key_listener_th = multiprocessing.Process(target=self.handle_keys)
         self.key_listener_th = threading.Thread(target=self.handle_keys)
         self.mapped_keys = {
             'p': self.pause,
@@ -36,7 +40,10 @@ class Timer():
             self.timer_th.start()
             self.key_listener_th.start()
             self.timer_th.join()
+            print("Killing?")
+            kill_thread(self.key_listener_th)
             self.key_listener_th.join()
+            print("Killed :D")
         except KeyboardInterrupt:
             self.should_run = False
         os.system(CLEAR_SCREEN_CMD)
@@ -51,8 +58,7 @@ class Timer():
             if not self.paused:
                 with self.counter_lock:
                     self.remaining_seconds -= 1
-        with self.control_lock:
-            self.should_run = False
+        self.should_run = False
 
     def update_screen(self):
         os.system(CLEAR_SCREEN_CMD)
@@ -85,14 +91,26 @@ class Timer():
 
     @staticmethod
     def get_key():
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        try:
-            tty.setraw(fd)
-            ch = sys.stdin.read(1)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-        return ch
+        with stopit.ThreadingTimeout(1) as to_ctx_mgr:
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+            try:
+                tty.setraw(fd)
+                ch = sys.stdin.read(1)
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        if to_ctx_mgr.state == to_ctx_mgr.EXECUTED:
+            return ch
+        else:
+            return '0'
+
+
+def kill_thread(thread):
+    thread_id = thread.ident
+    res = ctypes.pythonapi.PyThreadState_SetAsyncExc(thread_id, ctypes.py_object(SystemExit))
+    if res > 1:
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(thread_id, 0)
+        print('Exception raise failure')
 
 
 def parse_time(st):
@@ -129,6 +147,9 @@ def get_total_seconds(argv):
         total_seconds += parsed_time[key[0]] * key[2]
     return total_seconds
 
+
+def timer():
+    pass
 
 if __name__ == "__main__":
     total_seconds = get_total_seconds(sys.argv)

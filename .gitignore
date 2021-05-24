@@ -1,4 +1,6 @@
 ignore_*
+.vscode
+venv_*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -1,0 +1,2 @@
+pkg-resources==0.0.0
+stopit==1.1.2
